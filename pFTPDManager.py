@@ -31,10 +31,18 @@ class pFTPDManager:
         - RequestedBy   varchar(100)    (Null) 
         - UsableUntil   date            (Not Null)              Maybe rename it to ExpirationDate
     
-    Planned new fields:
+    Planned new database fields:
         - Active        int             (Database Default 1)
             It gives the option to deactivate an account before it expires and it will not be necessary to 
             modify the expiraten date 
+        - CreatedOn     date            (Not Null / Database Default to the CURRENT_DATA())
+            As the date for UsableUntil can be changed till the end of the universe, it does not give us 
+            precise information about when an Account has been created 
+        - LastRenewOn   date            (Null)
+            This is probably just a dump idea. But maybe it is interesting to know if the account has been 
+            renewed and when this happend. 
+        - RenewCounter  int             (Database Defaults to 0)
+            So we know how active the account is used. Have to be increased every time a account is renewed
 
     """
     __default_lifetime = "7"                     # days
@@ -93,6 +101,27 @@ class pFTPDManager:
 
         return True
 
+    def init_database_tables(self):
+        self.__dbcursor = self.__dbconnection.cursor()
+        create_query = """CREATE TABLE users (
+                            User varchar(255) NOT NULL, 
+                            Password varchar(255) NOT NULL,
+                            Uid int(11) NOT NULL DEFAULT '1001',
+                            Gid int(11) NOT NULL DEFAULT '1001',
+                            Dir varchar(255) NOT NULL,
+                            RequestedBy varchar(255) DEFAULT NULL,
+                            RequestedOn date NOT NULL,
+                            Active int(11) NOT NULL DEFAULT 1,
+                            ExpirationDate date NOT NULL,
+                            RenowedOn date DEFAULT NULL,
+                            RenowedCounter int(11) NOT NULL DEFAULT 0,
+                            PRIMARY KEY (User)
+                        )"""
+        
+        self.__dbcursor.execute(create_query)
+        self.__dbconnection.commit()
+        self.__dbcursor.close()
+
     def db_disconnect(self):
         try:
             self.__dbcursor.close()
@@ -127,6 +156,12 @@ class pFTPDManager:
         characters = string.ascii_letters + string.digits
         return "".join(choice(characters) for x in range(randint(length, length)))
     
+    @staticmethod
+    def generate_username(seed=None, length=13):
+        # TODO: Generate some useful random username. Based on something? Seed the funktion with something?!
+        #       Like an E-Mail Adress or an service name, Maybe. 
+        pass 
+
     def username_exists(self,username=None):
         """ Checks if the users exists already """
         if not username:
@@ -134,6 +169,7 @@ class pFTPDManager:
         # Update user list
         self.__retrieve_ftpusers()
 
+        # TODO: What is more efficient? Check the memory or make a Database Query? 
         if username in self.__ftpusers:
             return True
         return False
@@ -141,13 +177,12 @@ class pFTPDManager:
     def list_accounts(self,filter='ACTIVE'):
         self.__dbcursor = self.__dbconnection.cursor()
 
-        # TODO: Modify the following to use the flag, after the database Scheme has been changed
         if filter == "ACTIVE":
-          sql_query = "SELECT User,Dir,UsableUntil,RequestedBy FROM users WHERE CURRENT_DATE() < UsableUntil;"
+            sql_query = "SELECT User,Dir,UsableUntil,RequestedBy,RequestedOn,RenowedOn,RenowedCounter FROM users WHERE Active = 1;"
         elif filter == "EXPIRED":
-            sql_query = "SELECT User,Dir,UsableUntil,RequestedBy FROM users WHERE CURRENT_DATE() > UsableUntil;"
+            sql_query = "SELECT User,Dir,UsableUntil,RequestedBy,RequestedOn,RenowedOn,RenowedCounter FROM users WHERE Active = 0;"
         elif filter == "ALL":
-            sql_query = "SELECT User,Dir,UsableUntil,RequestedBy FROM users;"
+            sql_query = "SELECT User,Dir,UsableUntil,RequestedBy,RequestedOn,RenowedOn,RenowedCounter FROM users;"
 
         self.__dbcursor.execute(sql_query)
         results = self.__dbcursor.fetchall()
@@ -158,6 +193,10 @@ class pFTPDManager:
             return results
 
         return None
+
+    def list_accounts_that_expire_soon(self,days_to_expire=3):
+        # TODO: Return a list of all accounts that will expire in (amount) days.         
+        pass 
 
     def create_account(self,username=None,password=None,lifetime=None,requestedby=None):
         """ Creates a new virtual ftp account """
@@ -194,16 +233,19 @@ class pFTPDManager:
 
         self.__dbcursor.execute(insert_query, (username,password,user_directory,until,requestedby))
         self.__dbconnection.commit()
-
         self.__dbcursor.close()
 
         # TODO: Check if the SQL INSERT Statement was successful
         return True
 
     def delete_account_files(self,username=None):
+        # TODO: Decide if this is a function the core library needs to support directly. I may be better to just 
+        #       return the list of expired accounts (maybe with a filter e.g. accounts with an expiration date 
+        #       older than 180 days) 
+
         pass
 
-    def disable_account(self, username=None):
+    def deactivate_account(self, username=None):
         if not username:
            raise ValueError("Username is missing!")
 
@@ -211,17 +253,33 @@ class pFTPDManager:
             raise LookupError("{} not found".format(username))
 
         # TODO: Change the SQL Statement after the database scheme has been changed. (ActiveFlag)
-        update_sql = "UPDATE users SET UsableUntil = '1983-03-22' WHERE user = %s;"
+        update_sql = "UPDATE users SET Active = '0' WHERE user = %s;"
 
         self.__dbcursor = self.__dbconnection.cursor()
         self.__dbcursor.execute(update_sql,(username,))
         self.__dbconnection.commit()
-
         self.__dbcursor.close()
 
-        return self.is_account_disabled(username)
+        return self.is_account_deactivated(username)
 
-    def is_account_disabled(self,username=None):
+    def activate_account(self, username=None):
+        if not username:
+           raise ValueError("Username is missing!")
+
+        if not self.username_exists(username):
+            raise LookupError("{} not found".format(username))
+
+        # TODO: Change the SQL Statement after the database scheme has been changed. (ActiveFlag)
+        update_sql = "UPDATE users SET Active = '1' WHERE user = %s;"
+
+        self.__dbcursor = self.__dbconnection.cursor()
+        self.__dbcursor.execute(update_sql,(username,))
+        self.__dbconnection.commit()
+        self.__dbcursor.close()
+
+        return self.is_account_deactivated(username)
+
+    def is_account_deactivated(self,username=None):
         if not username:
            raise ValueError("Username is missing!")
 
@@ -241,9 +299,31 @@ class pFTPDManager:
         if len(results) == 0:
             return False
 
+    def is_account_expired(self, username=None):
+        if not username:
+           raise ValueError("Username is missing!")
+
+        if not self.username_exists(username):
+            raise LookupError("{} not found".format(username))
+
+        user_deactivated_sql = "SELECT User FROM users WHERE CURRENT_DATE() > UsableUntil and User = %s;"  
+
+        self.__dbcursor.execute(user_deactivated_sql,(username,))
+        results = self.__dbcursor.fetchall()
+        self.__dbcursor.close()
+
+        if len(results) == 1:
+            return True
+        if len(results) > 1: 
+            raise LookupError("Search returned more than one result. Something seems fishy")
+        if len(results) == 0:
+            return False
+
     def renew_account(self,username=None,new_lifetime=None):
+        # TODO: What about deactivated accounts, do we allow the renewal of those accounts? 
+        #       Administratively deactivated for a reason? 
         if not username or not new_lifetime:
-            raise ValueError("Username or (new) Lifetime is missing!")
+            raise ValueError("Username or (new) expiration date is missing!")
 
         if not new_lifetime:
             new_until = datetime.now().date() + timedelta(days=self.__default_lifetime+1)
@@ -259,12 +339,15 @@ class pFTPDManager:
         if not self.username_exists(username):
             raise LookupError("{} not found".format(username))
 
-        update_sql = "UPDATE users SET UsableUntil = %s WHERE user = %s;"
+        # TODO: We just silently activate an account when a renewal request is done 
+        if self.is_account_deactivated(username): 
+            self.activate_account(username)
+
+        update_sql = "UPDATE users SET UsableUntil = %s, RenewCounter = (RenewCounter + 1), RenowedOn = CURRENT_DATE() WHERE user = %s;"
 
         self.__dbcursor = self.__dbconnection.cursor()
         self.__dbcursor.execute(update_sql,(new_until,username))
         self.__dbconnection.commit()
-
         self.__dbcursor.close()
 
         # TODO: Check if the SQL INSERT Statement was successful
@@ -274,7 +357,7 @@ class pFTPDManager:
         if not username:
           raise ValueError("Username is missing!") 
 
-        sql_query = "SELECT RequestedBy FROM users WHERE user = %s;"
+        sql_query = "SELECT RequestedBy,RequestedOn FROM users WHERE user = %s;"
 
         self.__dbcursor = self.__dbconnection.cursor()
         self.__dbcursor.execute(sql_query, (username,))
@@ -288,6 +371,7 @@ if __name__ == "__main__":
     pass
 
     #### I need for some late time 
+    # TODO: Use pytest to check the functionallity of this class 
     # from getpass import getpass
     # # dbhost=None, dbuser=None, dbpass=None, dbname=None
 
