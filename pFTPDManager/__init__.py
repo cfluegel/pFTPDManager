@@ -4,4 +4,4 @@
 # Source: 
 # - https://python-packaging-tutorial.readthedocs.io/en/latest/setup_py.html
 
-from .pFTPDManager import pFTPDManager
+from .core import pFTPDManager

@@ -2,18 +2,20 @@
 
 
 from datetime import date, datetime, timedelta
+
 import os.path
 import sys
 
 import mysql.connector
 from mysql.connector import errorcode
 from hashlib import md5
+import hashlib 
 
 # mainly for Debugging
 import pprint
 
 # PW Generation
-from random import randint, choice
+from random import randint, choice, random 
 import string 
 
 
@@ -158,9 +160,14 @@ class pFTPDManager:
     
     @staticmethod
     def generate_username(seed=None, length=13):
-        # TODO: Generate some useful random username. Based on something? Seed the funktion with something?!
-        #       Like an E-Mail Adress or an service name, Maybe. 
-        pass 
+        if not seed: 
+            raise ValueError("Seed is missing")
+
+        sha1 = hashlib.sha1(seed.encode("utf-8") + 
+                            str(random()).encode("utf-8") + 
+                            datetime.utcnow().strftime("%s").encode("utf-8"))
+        
+        return "{}{}".format("ftp-", sha1.hexdigest()[0:10])
 
     def username_exists(self,username=None):
         """ Checks if the users exists already """
