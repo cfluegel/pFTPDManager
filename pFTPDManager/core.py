@@ -72,9 +72,9 @@ class pFTPDManager:
 
         self.db_connect()
 
+        # TODO: Does it even reach this? I mean db_connect also raises an Exception ... 
         if not self.__dbconnection:
             raise ConnectionError("Connection failed")
-
 
     def __del__(self):
         self.db_disconnect();
@@ -143,15 +143,13 @@ class pFTPDManager:
                                                          user=self.__dbuser,
                                                          passwd=self.__dbpass,
                                                          db=self.__dbname)
-        except mysql.connector.Error as err:
-            if err.errno == errorcode.ER_ACCESS_DENIED_ERROR:
-                raise ConnectionRefusedError("Something is wrong with your user name or password")
-            elif err.errno == errorcode.ER_BAD_DB_ERROR:
-                raise ConnectionError("Database does not exist")
-            else:
-                raise ConnectionError("Unknown Error") 
-        except (mysql.connector.errors.DatabaseError, mysql.connector.MySQLInterfaceError):
-            raise ConnectionError("Can't connect to server")
+        
+        # TODO: errno check for each exception?! 
+        #       https://dev.mysql.com/doc/connector-python/en/connector-python-api-errors.html
+        except mysql.connector.errors.ProgrammingError as err:
+            raise ConnectionError("Error: {}".format(err))
+        except mysql.connector.errors.DatabaseError as err:
+            raise ConnectionError("Error: {}".format(err))
 
     @staticmethod
     def generate_password(length=13):
